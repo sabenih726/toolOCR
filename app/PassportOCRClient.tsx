@@ -782,13 +782,13 @@ export default function PassportOCRClient() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
-                Passport OCR Pro
+                Passport Tool Pro
               </h1>
-              <p className="text-sm text-gray-400">AI-Powered MRZ Parser • PDF & Image Support</p>
+              <p className="text-sm text-gray-400">AI-Powered OCR Extraction • PDF & Image Support</p>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-xs bg-purple-600/20 text-purple-400 px-2 py-1 rounded flex items-center gap-1">
-                <PdfIcon/> PDF Support
+                <PdfIcon/> PDF & Image Support
               </span>
               {workerReady ? (
                 <span className="flex items-center gap-2 text-sm text-green-400 bg-green-500/10 px-3 py-1.5 rounded-full">
@@ -820,7 +820,7 @@ export default function PassportOCRClient() {
         >
           <UploadIcon />
           <p className="text-xl font-semibold mt-4">{isDragging ? "Drop files here" : "Upload Passport Files"}</p>
-          <p className="text-gray-400 mt-2">Drag & drop or click to browse</p>
+          <p className="text-gray-400 mt-2">Drag & drop or click to browser</p>
           <div className="flex items-center justify-center gap-4 mt-3">
             <span className="text-xs bg-blue-600/20 text-blue-400 px-3 py-1 rounded-full">📄 PDF</span>
             <span className="text-xs bg-green-600/20 text-green-400 px-3 py-1 rounded-full">🖼️ JPG</span>
@@ -1123,6 +1123,43 @@ export default function PassportOCRClient() {
           </div>
         )}
       </div>
+      {/* ========== FOOTER ========== */}
+      <footer className="mt-12 border-t border-gray-800">
+        <div className="max-w-7xl mx-auto px-6 py-6">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+            {/* Left: Info */}
+            <div className="text-center md:text-left">
+              <p className="text-white/70 font-medium flex items-center gap-2 justify-center md:justify-start">
+                <span className="text-2xl">🛂</span>
+                Passport OCR Pro
+              </p>
+              <p className="text-white/50 text-xs mt-1">
+                Powered by AI • 100% Privacy-First • Client-Side Processing
+              </p>
+            </div>
+      
+            {/* Right: Stats/Badges */}
+            <div className="flex flex-wrap items-center gap-3 justify-center">
+              <div className="px-3 py-1.5 bg-green-600/20 text-green-400 rounded-full text-xs font-medium">
+                ✓ Offline Ready
+              </div>
+              <div className="px-3 py-1.5 bg-purple-600/20 text-purple-400 rounded-full text-xs font-medium">
+                🚀 Fast Processing
+              </div>
+              <div className="px-3 py-1.5 bg-blue-600/20 text-blue-400 rounded-full text-xs font-medium">
+                🔒 Secure
+              </div>
+            </div>
+          </div>
+      
+          {/* Copyright */}
+          <div className="mt-4 pt-4 border-t border-gray-800/50 text-center">
+            <p className="text-gray-500 text-xs">
+              © {new Date().getFullYear()} @2025 Part Of Laman tools • Develop by Sabnreview
+            </p>
+          </div>
+        </div>
+      </footer>
     </div>
   )
 }
