@@ -1155,7 +1155,7 @@ export default function PassportOCRClient() {
           {/* Copyright */}
           <div className="mt-4 pt-4 border-t border-gray-800/50 text-center">
             <p className="text-gray-500 text-xs">
-              © {new Date().getFullYear()} @2025 Part Of Laman tools • Develop by Sabnreview
+              © {new Date().getFullYear()} Part Of Laman tools • Develop by Sabnreview
             </p>
           </div>
         </div>
@@ -1163,3 +1163,4 @@ export default function PassportOCRClient() {
     </div>
   )
 }
+
