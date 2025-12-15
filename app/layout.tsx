@@ -5,7 +5,7 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Passport OCR Pro - Enhanced Edition',
+  title: 'Passport OCR Pro - Laman Tool',
   description: 'Advanced passport OCR with MRZ parsing',
 }
 
