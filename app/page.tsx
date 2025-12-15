@@ -3,6 +3,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from "react"
 import { createWorker, PSM, OEM } from "tesseract.js"
+import * as XLSX from 'xlsx'
 
 // ====================== TYPES ======================
 interface ExtractedData {
@@ -104,6 +105,16 @@ const DownloadIcon = () => (
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
     <polyline points="7 10 12 15 17 10"/>
     <line x1="12" y1="15" x2="12" y2="3"/>
+  </svg>
+)
+
+const ExcelIcon = () => (
+  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} aria-hidden="true">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+    <polyline points="14 2 14 8 20 8"/>
+    <line x1="9" y1="15" x2="15" y2="15"/>
+    <line x1="9" y1="12" x2="15" y2="12"/>
+    <line x1="9" y1="9" x2="13" y2="9"/>
   </svg>
 )
 
@@ -265,16 +276,14 @@ class ImagePreprocessor {
   }
 }
 
-// ====================== ENHANCED MRZ PARSER (IMPROVED LINE 2 DETECTION) ======================
+// ====================== ENHANCED MRZ PARSER ======================
 class EnhancedMRZParser {
   
   static parse(text: string): ExtractedData {
     console.log("🔍 Starting MRZ Position-Based Parsing...")
     
-    // Extract MRZ lines
     const mrzLines = this.extractMRZLines(text)
     
-    // Parse MRZ data
     let mrzData = this.emptyData()
     if (mrzLines.line1 && mrzLines.line2) {
       mrzData = this.parseMRZByPosition(mrzLines.line1, mrzLines.line2)
@@ -285,10 +294,8 @@ class EnhancedMRZParser {
       })
     }
     
-    // Parse visual text sebagai backup
     const visualData = this.parseVisualText(text)
     
-    // Merge dengan prioritas MRZ data
     return {
       passportNo: mrzData.passportNo || visualData.passportNo || "",
       fullName: mrzData.fullName || visualData.fullName || "",
@@ -311,15 +318,12 @@ class EnhancedMRZParser {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim()
       
-      // Skip empty lines
       if (line.length === 0) continue
       
       const cleaned = line
         .replace(/\s+/g, '')
         .toUpperCase()
       
-      // ========== DETECT MRZ LINE 1 ==========
-      // Pattern: P<CHN or P0CHN or POCHN followed by name
       if (!line1 && (cleaned.includes('P0CHN') || cleaned.includes('POCHN') || cleaned.includes('P<CHN'))) {
         line1 = cleaned
           .replace(/P0CHN/g, 'P<CHN')
@@ -327,15 +331,7 @@ class EnhancedMRZParser {
         console.log("📌 MRZ Line 1:", line1)
       }
       
-      // ========== DETECT MRZ LINE 2 (IMPROVED) ==========
-      // Line 2 biasanya muncul setelah Line 1
-      // Pattern: bisa dimulai dengan:
-      // - Huruf (E, G, dll) untuk passport number
-      // - Karakter special (丁, 一, dll) yang seharusnya huruf
-      // - Langsung angka jika OCR error
-      
       if (!line2 && line1) {
-        // Check jika line ini mengandung pattern MRZ Line 2
         const hasCHN = cleaned.includes('CHN')
         const hasDigits = /\d{6,}/.test(cleaned)
         const hasGender = /[MF]/.test(cleaned)
@@ -348,15 +344,12 @@ class EnhancedMRZParser {
       }
     }
     
-    // Fallback: Cari Line 2 di seluruh teks jika belum ketemu
     if (line1 && !line2) {
       console.log("⚠️ Line 2 not found after Line 1, searching entire text...")
       
       for (const line of lines) {
         const cleaned = line.replace(/\s+/g, '').toUpperCase()
         
-        // Cari pattern yang sangat spesifik untuk Line 2
-        // Harus mengandung: CHN + 6 digits (DOB) + M/F + 6 digits (DOE)
         const mrzPattern = /CHN\d{6,7}[MF]\d{6}/
         if (mrzPattern.test(cleaned)) {
           line2 = this.cleanMRZLine2(cleaned)
@@ -372,8 +365,6 @@ class EnhancedMRZParser {
   static cleanMRZLine2(raw: string): string {
     let cleaned = raw
     
-    // Fix common OCR errors at the start
-    // 丁F -> EF, 一G -> EG, dll
     const prefixFixes: Record<string, string> = {
       '丁F': 'EF',
       '丁G': 'EG',
@@ -392,7 +383,6 @@ class EnhancedMRZParser {
       }
     }
     
-    // Remove leading comma or special chars
     cleaned = cleaned.replace(/^[,、。；]/g, '')
     
     return cleaned
@@ -405,33 +395,28 @@ class EnhancedMRZParser {
     console.log("Line 1:", line1)
     console.log("Line 2:", line2)
     
-    // ========== PARSE LINE 1: Full Name ==========
     if (line1.includes('CHN')) {
       data.nationality = 'CHN'
       
       const chnIndex = line1.indexOf('CHN')
       const nameSection = line1.substring(chnIndex + 3)
       
-      // Remove filler characters (K often misread as <)
       const cleanedName = nameSection.replace(/K/g, '<')
       
-      // Split by << or multiple <
       const nameParts = cleanedName.split(/<<+/)
       
       if (nameParts.length >= 2) {
-        // Clean surname: remove < and fix OCR errors (0 → O)
         const surname = nameParts[0]
           .replace(/[<]/g, '')
-          .replace(/0/g, 'O')  // Fix 0 to O
-          .replace(/\d+/g, '')  // Remove any remaining numbers
+          .replace(/0/g, 'O')
+          .replace(/\d+/g, '')
           .trim()
         
-        // Clean given name: remove < and fix OCR errors
         const givenName = nameParts[1]
           .replace(/[<]/g, ' ')
-          .replace(/0/g, 'O')  // Fix 0 to O
-          .replace(/\d+/g, '')  // Remove any remaining numbers
-          .replace(/\s+/g, ' ')  // Normalize spaces
+          .replace(/0/g, 'O')
+          .replace(/\d+/g, '')
+          .replace(/\s+/g, ' ')
           .trim()
         
         if (surname && givenName) {
@@ -441,7 +426,6 @@ class EnhancedMRZParser {
       }
     }
     
-    // ========== PARSE LINE 2: Passport, DOB, Gender, DOE ==========
     if (!line2) {
       console.error("❌ Line 2 is empty, cannot parse dates!")
       return data
@@ -453,31 +437,22 @@ class EnhancedMRZParser {
       return data
     }
     
-    // 1. Passport Number (before CHN)
     let passport = line2.substring(0, chnIndex)
     passport = passport.replace(/[^A-Z0-9]/g, '')
     
-    // Chinese passport format: 2 letters + 7 or 8 digits
-    // Total length: 9 or 10 characters
-    // Don't truncate if it's valid length
     if (passport.length === 10 && /^[A-Z]{2}\d{8}$/.test(passport)) {
-      // Valid 10-char passport (E + second letter + 8 digits)
       data.passportNo = passport
     } else if (passport.length === 9 && /^[A-Z]{2}\d{7}$/.test(passport)) {
-      // Valid 9-char passport (2 letters + 7 digits)
       data.passportNo = passport
     } else if (passport.length > 10) {
-      // Too long, truncate to 10
       passport = passport.substring(0, 10)
       data.passportNo = passport
     } else {
-      // Use as-is
       data.passportNo = passport
     }
     
     console.log("✅ Passport:", data.passportNo, `(${data.passportNo.length} chars)`)
     
-    // 2. After CHN
     const afterCHN = line2.substring(chnIndex + 3)
     console.log("After CHN:", afterCHN)
     
@@ -486,7 +461,6 @@ class EnhancedMRZParser {
       return data
     }
     
-    // 3. Date of Birth (6 digits after CHN)
     const dobRaw = afterCHN.substring(0, 6)
     if (/^\d{6}$/.test(dobRaw)) {
       data.dateOfBirth = this.parseMRZDate(dobRaw, false)
@@ -495,8 +469,6 @@ class EnhancedMRZParser {
       console.error("❌ Invalid DOB format:", dobRaw)
     }
     
-    // 4. Gender (after DOB + check digit)
-    // Position 6 = check digit, position 7 = gender
     if (afterCHN.length >= 8) {
       const genderChar = afterCHN[7]
       
@@ -504,7 +476,6 @@ class EnhancedMRZParser {
         data.gender = genderChar === 'M' ? 'Male' : 'Female'
         console.log("✅ Gender:", genderChar, "->", data.gender)
         
-        // 5. Date of Expiry (6 digits after gender)
         const afterGender = afterCHN.substring(8)
         if (afterGender.length >= 6) {
           const doeRaw = afterGender.substring(0, 6)
@@ -558,7 +529,6 @@ class EnhancedMRZParser {
     const lines = text.split('\n').map(l => l.trim())
     
     for (const line of lines) {
-      // Passport
       if (!data.passportNo) {
         const passportMatch = line.match(/([EG][A-Z]?)\s*(\d{7,9})/i)
         if (passportMatch) {
@@ -566,7 +536,6 @@ class EnhancedMRZParser {
         }
       }
       
-      // Name
       if (!data.fullName) {
         const nameMatch = line.match(/([A-Z]{2,}),\s*([A-Z]{2,})/)
         if (nameMatch && !['TYPE', 'CODE'].includes(nameMatch[1])) {
@@ -574,12 +543,10 @@ class EnhancedMRZParser {
         }
       }
       
-      // Place of birth
       if (!data.placeOfBirth && (line.includes('GANSU') || line.includes('甘肃'))) {
         data.placeOfBirth = 'GANSU'
       }
       
-      // Dates from visual
       const datePattern = /(\d{1,2})\s*([A-Z]{3})\s*(\d{4})/gi
       let match
       while ((match = datePattern.exec(line)) !== null) {
@@ -597,12 +564,10 @@ class EnhancedMRZParser {
         }
       }
       
-      // Nationality
       if (!data.nationality && /CHINESE|CHN/i.test(line)) {
         data.nationality = 'CHN'
       }
       
-      // Gender
       if (!data.gender) {
         if (/男|\/M\s|Male/i.test(line)) data.gender = 'Male'
         else if (/女|\/F\s|Female/i.test(line)) data.gender = 'Female'
@@ -634,7 +599,6 @@ class EnhancedOCRWorker {
   async initialize() {
     if (this.initialized) return
     
-    // Create single worker with combined languages
     this.worker = await createWorker('eng+chi_sim', 1, {
       workerPath: 'https://unpkg.com/tesseract.js@v5.1.1/dist/worker.min.js',
       corePath: 'https://unpkg.com/tesseract.js-core@v5.1.0/tesseract-core.wasm.js',
@@ -942,19 +906,83 @@ export default function EnhancedPassportOCR() {
     }
   }
   
-  const exportCSV = () => {
-    const rows = files.map(f => [
-      f.file.name, f.structuredData.passportNo, f.structuredData.fullName,
-      f.structuredData.dateOfBirth, f.structuredData.dateOfExpiry,
-      f.structuredData.nationality, f.structuredData.gender
-    ].map(v => `"${(v || "").replace(/"/g, '""')}"`).join(","))
+  const exportToExcel = () => {
+    if (files.length === 0) {
+      alert("No data to export!")
+      return
+    }
+
+    const excelData = files.map((f, index) => ({
+      'No': index + 1,
+      'File Name': f.file.name,
+      'Passport Number': f.structuredData.passportNo || '-',
+      'Full Name': f.structuredData.fullName || '-',
+      'Date of Birth': f.structuredData.dateOfBirth || '-',
+      'Date of Expiry': f.structuredData.dateOfExpiry || '-',
+      'Place of Birth': f.structuredData.placeOfBirth || '-',
+      'Date of Issue': f.structuredData.dateOfIssue || '-',
+      'Nationality': f.structuredData.nationality || '-',
+      'Gender': f.structuredData.gender || '-',
+      'Status': f.error ? 'Error' : f.structuredData.passportNo ? 'Success' : 'No Data'
+    }))
+
+    const ws = XLSX.utils.json_to_sheet(excelData)
+
+    const colWidths = [
+      { wch: 5 },
+      { wch: 25 },
+      { wch: 15 },
+      { wch: 25 },
+      { wch: 15 },
+      { wch: 15 },
+      { wch: 15 },
+      { wch: 15 },
+      { wch: 12 },
+      { wch: 10 },
+      { wch: 12 }
+    ]
+    ws['!cols'] = colWidths
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Passport Data')
+
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-')
+    const filename = `Passport_OCR_${timestamp}.xlsx`
+
+    XLSX.writeFile(wb, filename)
+  }
+
+  const exportToCSV = () => {
+    if (files.length === 0) {
+      alert("No data to export!")
+      return
+    }
+
+    const rows = files.map((f, index) => [
+      index + 1,
+      f.file.name,
+      f.structuredData.passportNo,
+      f.structuredData.fullName,
+      f.structuredData.dateOfBirth,
+      f.structuredData.dateOfExpiry,
+      f.structuredData.placeOfBirth,
+      f.structuredData.dateOfIssue,
+      f.structuredData.nationality,
+      f.structuredData.gender,
+      f.error ? 'Error' : f.structuredData.passportNo ? 'Success' : 'No Data'
+    ].map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(","))
     
-    const csv = ["File,Passport No,Full Name,Date Of Birth,Date Of Expiry,Nationality,Gender", ...rows].join("\n")
+    const csv = [
+      "No,File Name,Passport Number,Full Name,Date of Birth,Date of Expiry,Place of Birth,Date of Issue,Nationality,Gender,Status",
+      ...rows
+    ].join("\n")
+    
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-')
     a.href = url
-    a.download = `passport_${new Date().toISOString().slice(0, 10)}.csv`
+    a.download = `Passport_OCR_${timestamp}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -984,7 +1012,6 @@ export default function EnhancedPassportOCR() {
   
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-900 to-gray-800 text-white">
-      {/* Header */}
       <header className="border-b border-gray-800 bg-gray-900/80 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
@@ -1017,7 +1044,6 @@ export default function EnhancedPassportOCR() {
       </header>
       
       <main className="max-w-7xl mx-auto px-6 py-6">
-        {/* Upload Area */}
         <div
           className={`relative border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-300 ${
             isDragging 
@@ -1051,31 +1077,41 @@ export default function EnhancedPassportOCR() {
           className="hidden"
         />
         
-        {/* Main Content */}
         {files.length > 0 && (
           <div className="mt-8 grid grid-cols-12 gap-6">
-            {/* Sidebar - File List */}
             <aside className="col-span-12 lg:col-span-3">
               <div className="bg-gray-800/50 rounded-2xl border border-gray-700/50 overflow-hidden">
-                <div className="p-4 border-b border-gray-700/50 flex items-center justify-between">
-                  <h2 className="font-semibold text-gray-200">Files ({files.length})</h2>
-                  <div className="flex gap-2">
+                <div className="p-4 border-b border-gray-700/50">
+                  <h2 className="font-semibold text-gray-200 mb-3">Files ({files.length})</h2>
+                  
+                  <div className="flex flex-col gap-2 mb-3">
                     <button
-                      onClick={exportCSV}
-                      className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-                      title="Export CSV"
+                      onClick={exportToExcel}
+                      className="flex items-center justify-center gap-2 w-full px-3 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors text-sm font-medium"
+                      title="Export to Excel"
+                    >
+                      <ExcelIcon />
+                      Export Excel
+                    </button>
+                    <button
+                      onClick={exportToCSV}
+                      className="flex items-center justify-center gap-2 w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-sm font-medium"
+                      title="Export to CSV"
                     >
                       <DownloadIcon />
+                      Export CSV
                     </button>
                     <button
                       onClick={clearAllFiles}
-                      className="p-2 bg-red-600/20 hover:bg-red-600/40 text-red-400 rounded-lg transition-colors"
+                      className="flex items-center justify-center gap-2 w-full px-3 py-2 bg-red-600/20 hover:bg-red-600/40 text-red-400 rounded-lg transition-colors text-sm font-medium"
                       title="Clear All"
                     >
                       <TrashIcon />
+                      Clear All
                     </button>
                   </div>
                 </div>
+                
                 <div className="max-h-[500px] overflow-y-auto">
                   {files.map(f => (
                     <div
@@ -1121,11 +1157,9 @@ export default function EnhancedPassportOCR() {
               </div>
             </aside>
             
-            {/* Main Panel */}
             <section className="col-span-12 lg:col-span-9">
               {selectedFile ? (
                 <div className="space-y-6">
-                  {/* Image Preview */}
                   <div className="bg-gray-800/50 rounded-2xl border border-gray-700/50 overflow-hidden">
                     <div className="p-4 border-b border-gray-700/50 flex items-center justify-between flex-wrap gap-2">
                       <h3 className="font-semibold text-gray-200 flex items-center gap-2">
@@ -1182,7 +1216,6 @@ export default function EnhancedPassportOCR() {
                     </div>
                   </div>
                   
-                  {/* Data Panel */}
                   <div className="bg-gray-800/50 rounded-2xl border border-gray-700/50 overflow-hidden">
                     <div className="p-4 border-b border-gray-700/50 flex items-center justify-between flex-wrap gap-4">
                       <Tabs
@@ -1236,6 +1269,18 @@ export default function EnhancedPassportOCR() {
                             isEditing={isEditing}
                           />
                           <DataField
+                            label="Place of Birth"
+                            value={selectedFile.structuredData.placeOfBirth}
+                            onChange={(v) => updateField("placeOfBirth", v)}
+                            isEditing={isEditing}
+                          />
+                          <DataField
+                            label="Date of Issue"
+                            value={selectedFile.structuredData.dateOfIssue}
+                            onChange={(v) => updateField("dateOfIssue", v)}
+                            isEditing={isEditing}
+                          />
+                          <DataField
                             label="Nationality"
                             value={selectedFile.structuredData.nationality}
                             onChange={(v) => updateField("nationality", v)}
@@ -1279,7 +1324,6 @@ export default function EnhancedPassportOCR() {
           </div>
         )}
         
-        {/* Quick Stats */}
         {files.length > 0 && (
           <section className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
@@ -1308,7 +1352,6 @@ export default function EnhancedPassportOCR() {
         )}
       </main>
       
-      {/* Footer */}
       <footer className="border-t border-gray-800 mt-12 py-6 text-center text-gray-500 text-sm">
         <p>Passport OCR Pro Enhanced • Built with Next.js & Tesseract.js • All processing happens locally</p>
       </footer>
