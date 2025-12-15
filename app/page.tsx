@@ -10,8 +10,6 @@ interface ExtractedData {
   passportNo: string
   fullName: string
   dateOfBirth: string
-  placeOfBirth: string
-  dateOfIssue: string
   dateOfExpiry: string
   nationality: string
   gender: string
@@ -300,8 +298,6 @@ class EnhancedMRZParser {
       passportNo: mrzData.passportNo || visualData.passportNo || "",
       fullName: mrzData.fullName || visualData.fullName || "",
       dateOfBirth: mrzData.dateOfBirth || visualData.dateOfBirth || "",
-      placeOfBirth: visualData.placeOfBirth || "",
-      dateOfIssue: visualData.dateOfIssue || "",
       dateOfExpiry: mrzData.dateOfExpiry || visualData.dateOfExpiry || "",
       nationality: mrzData.nationality || visualData.nationality || "",
       gender: mrzData.gender || visualData.gender || ""
@@ -543,10 +539,6 @@ class EnhancedMRZParser {
         }
       }
       
-      if (!data.placeOfBirth && (line.includes('GANSU') || line.includes('甘肃'))) {
-        data.placeOfBirth = 'GANSU'
-      }
-      
       const datePattern = /(\d{1,2})\s*([A-Z]{3})\s*(\d{4})/gi
       let match
       while ((match = datePattern.exec(line)) !== null) {
@@ -559,8 +551,6 @@ class EnhancedMRZParser {
           data.dateOfBirth = formatted
         } else if (!data.dateOfExpiry && year >= 2025) {
           data.dateOfExpiry = formatted
-        } else if (!data.dateOfIssue && year >= 2015 && year <= 2024) {
-          data.dateOfIssue = formatted
         }
       }
       
@@ -582,8 +572,6 @@ class EnhancedMRZParser {
       passportNo: "",
       fullName: "",
       dateOfBirth: "",
-      placeOfBirth: "",
-      dateOfIssue: "",
       dateOfExpiry: "",
       nationality: "",
       gender: ""
@@ -822,8 +810,8 @@ export default function EnhancedPassportOCR() {
       imageUrl: URL.createObjectURL(file),
       extractedText: "",
       structuredData: {
-        passportNo: "", fullName: "", dateOfBirth: "", placeOfBirth: "",
-        dateOfIssue: "", dateOfExpiry: "", nationality: "", gender: ""
+        passportNo: "", fullName: "", dateOfBirth: "",
+        dateOfExpiry: "", nationality: "", gender: ""
       },
       isProcessing: true,
       progress: 0,
@@ -919,8 +907,6 @@ export default function EnhancedPassportOCR() {
       'Full Name': f.structuredData.fullName || '-',
       'Date of Birth': f.structuredData.dateOfBirth || '-',
       'Date of Expiry': f.structuredData.dateOfExpiry || '-',
-      'Place of Birth': f.structuredData.placeOfBirth || '-',
-      'Date of Issue': f.structuredData.dateOfIssue || '-',
       'Nationality': f.structuredData.nationality || '-',
       'Gender': f.structuredData.gender || '-',
       'Status': f.error ? 'Error' : f.structuredData.passportNo ? 'Success' : 'No Data'
@@ -929,17 +915,15 @@ export default function EnhancedPassportOCR() {
     const ws = XLSX.utils.json_to_sheet(excelData)
 
     const colWidths = [
-      { wch: 5 },
-      { wch: 25 },
-      { wch: 15 },
-      { wch: 25 },
-      { wch: 15 },
-      { wch: 15 },
-      { wch: 15 },
-      { wch: 15 },
-      { wch: 12 },
-      { wch: 10 },
-      { wch: 12 }
+      { wch: 5 },   // No
+      { wch: 25 },  // File Name
+      { wch: 15 },  // Passport Number
+      { wch: 25 },  // Full Name
+      { wch: 15 },  // Date of Birth
+      { wch: 15 },  // Date of Expiry
+      { wch: 12 },  // Nationality
+      { wch: 10 },  // Gender
+      { wch: 12 }   // Status
     ]
     ws['!cols'] = colWidths
 
@@ -965,15 +949,13 @@ export default function EnhancedPassportOCR() {
       f.structuredData.fullName,
       f.structuredData.dateOfBirth,
       f.structuredData.dateOfExpiry,
-      f.structuredData.placeOfBirth,
-      f.structuredData.dateOfIssue,
       f.structuredData.nationality,
       f.structuredData.gender,
       f.error ? 'Error' : f.structuredData.passportNo ? 'Success' : 'No Data'
     ].map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(","))
     
     const csv = [
-      "No,File Name,Passport Number,Full Name,Date of Birth,Date of Expiry,Place of Birth,Date of Issue,Nationality,Gender,Status",
+      "No,File Name,Passport Number,Full Name,Date of Birth,Date of Expiry,Nationality,Gender,Status",
       ...rows
     ].join("\n")
     
@@ -1266,18 +1248,6 @@ export default function EnhancedPassportOCR() {
                             label="Date of Expiry"
                             value={selectedFile.structuredData.dateOfExpiry}
                             onChange={(v) => updateField("dateOfExpiry", v)}
-                            isEditing={isEditing}
-                          />
-                          <DataField
-                            label="Place of Birth"
-                            value={selectedFile.structuredData.placeOfBirth}
-                            onChange={(v) => updateField("placeOfBirth", v)}
-                            isEditing={isEditing}
-                          />
-                          <DataField
-                            label="Date of Issue"
-                            value={selectedFile.structuredData.dateOfIssue}
-                            onChange={(v) => updateField("dateOfIssue", v)}
                             isEditing={isEditing}
                           />
                           <DataField
