@@ -265,190 +265,288 @@ class ImagePreprocessor {
   }
 }
 
-// ====================== ENHANCED MRZ PARSER (FIXED) ======================
+// ====================== ENHANCED MRZ PARSER (IMPROVED LINE 2 DETECTION) ======================
 class EnhancedMRZParser {
   
   static parse(text: string): ExtractedData {
-    console.log("🔍 Starting MRZ-Focused Parsing...")
+    console.log("🔍 Starting MRZ Position-Based Parsing...")
     
+    // Extract MRZ lines
     const mrzLines = this.extractMRZLines(text)
     
+    // Parse MRZ data
+    let mrzData = this.emptyData()
     if (mrzLines.line1 && mrzLines.line2) {
-      console.log("✅ Found MRZ Lines!")
-      console.log("   Line 1:", mrzLines.line1)
-      console.log("   Line 2:", mrzLines.line2)
-      
-      const mrzData = this.parseMRZPositionBased(mrzLines.line1, mrzLines.line2)
-      const visualData = this.parseVisualText(text)
-      
-      // Merge data dengan prioritas pada data yang valid
-      return {
-        passportNo: mrzData.passportNo || visualData.passportNo || "",
-        fullName: mrzData.fullName || visualData.fullName || "",
-        dateOfBirth: mrzData.dateOfBirth || visualData.dateOfBirth || "",
-        placeOfBirth: visualData.placeOfBirth || "",
-        dateOfIssue: visualData.dateOfIssue || "",
-        dateOfExpiry: mrzData.dateOfExpiry || visualData.dateOfExpiry || "",
-        nationality: mrzData.nationality || visualData.nationality || "",
-        gender: mrzData.gender || visualData.gender || ""
-      }
+      mrzData = this.parseMRZByPosition(mrzLines.line1, mrzLines.line2)
+    } else {
+      console.warn("⚠️ MRZ lines incomplete:", { 
+        hasLine1: !!mrzLines.line1, 
+        hasLine2: !!mrzLines.line2 
+      })
     }
     
-    console.warn("⚠️ MRZ not found, using visual parsing only")
-    return this.parseVisualText(text)
+    // Parse visual text sebagai backup
+    const visualData = this.parseVisualText(text)
+    
+    // Merge dengan prioritas MRZ data
+    return {
+      passportNo: mrzData.passportNo || visualData.passportNo || "",
+      fullName: mrzData.fullName || visualData.fullName || "",
+      dateOfBirth: mrzData.dateOfBirth || visualData.dateOfBirth || "",
+      placeOfBirth: visualData.placeOfBirth || "",
+      dateOfIssue: visualData.dateOfIssue || "",
+      dateOfExpiry: mrzData.dateOfExpiry || visualData.dateOfExpiry || "",
+      nationality: mrzData.nationality || visualData.nationality || "",
+      gender: mrzData.gender || visualData.gender || ""
+    }
   }
   
   static extractMRZLines(text: string): { line1: string; line2: string } {
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0)
-    
+    const lines = text.split('\n')
     let line1 = ""
     let line2 = ""
     
-    for (const line of lines) {
+    console.log("📄 Scanning for MRZ lines...")
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim()
+      
+      // Skip empty lines
+      if (line.length === 0) continue
+      
       const cleaned = line
         .replace(/\s+/g, '')
-        .replace(/[kK]/g, '<')
-        .replace(/[丁]/g, 'E') // Fix untuk karakter yang salah dibaca
         .toUpperCase()
       
-      // Deteksi MRZ Line 1 (P<CHN...)
-      if (cleaned.includes('P0CHN') || cleaned.includes('POCHN')) {
-        line1 = cleaned.replace('P0CHN', 'P<CHN').replace('POCHN', 'P<CHN')
-        console.log("📌 Found MRZ Line 1:", line1)
+      // ========== DETECT MRZ LINE 1 ==========
+      // Pattern: P<CHN or P0CHN or POCHN followed by name
+      if (!line1 && (cleaned.includes('P0CHN') || cleaned.includes('POCHN') || cleaned.includes('P<CHN'))) {
+        line1 = cleaned
+          .replace(/P0CHN/g, 'P<CHN')
+          .replace(/POCHN/g, 'P<CHN')
+        console.log("📌 MRZ Line 1:", line1)
       }
-      // Deteksi MRZ Line 2 (passport number + dates)
-      else if (/[A-Z]{1,2}\d{7,9}CHN/.test(cleaned)) {
-        line2 = cleaned
-        console.log("📌 Found MRZ Line 2:", line2)
+      
+      // ========== DETECT MRZ LINE 2 (IMPROVED) ==========
+      // Line 2 biasanya muncul setelah Line 1
+      // Pattern: bisa dimulai dengan:
+      // - Huruf (E, G, dll) untuk passport number
+      // - Karakter special (丁, 一, dll) yang seharusnya huruf
+      // - Langsung angka jika OCR error
+      
+      if (!line2 && line1) {
+        // Check jika line ini mengandung pattern MRZ Line 2
+        const hasCHN = cleaned.includes('CHN')
+        const hasDigits = /\d{6,}/.test(cleaned)
+        const hasGender = /[MF]/.test(cleaned)
+        const isProbablyMRZ2 = cleaned.length >= 30
+        
+        if (hasCHN && hasDigits && isProbablyMRZ2) {
+          line2 = this.cleanMRZLine2(cleaned)
+          console.log("📌 MRZ Line 2:", line2)
+        }
+      }
+    }
+    
+    // Fallback: Cari Line 2 di seluruh teks jika belum ketemu
+    if (line1 && !line2) {
+      console.log("⚠️ Line 2 not found after Line 1, searching entire text...")
+      
+      for (const line of lines) {
+        const cleaned = line.replace(/\s+/g, '').toUpperCase()
+        
+        // Cari pattern yang sangat spesifik untuk Line 2
+        // Harus mengandung: CHN + 6 digits (DOB) + M/F + 6 digits (DOE)
+        const mrzPattern = /CHN\d{6,7}[MF]\d{6}/
+        if (mrzPattern.test(cleaned)) {
+          line2 = this.cleanMRZLine2(cleaned)
+          console.log("📌 MRZ Line 2 (fallback):", line2)
+          break
+        }
       }
     }
     
     return { line1, line2 }
   }
   
-  static parseMRZPositionBased(line1: string, line2: string): ExtractedData {
+  static cleanMRZLine2(raw: string): string {
+    let cleaned = raw
+    
+    // Fix common OCR errors at the start
+    // 丁F -> EF, 一G -> EG, dll
+    const prefixFixes: Record<string, string> = {
+      '丁F': 'EF',
+      '丁G': 'EG',
+      '一F': 'EF',
+      '一G': 'EG',
+      ',丁F': 'EF',
+      ',F': 'EF',
+      '0F': 'EF',
+      '0G': 'EG'
+    }
+    
+    for (const [wrong, correct] of Object.entries(prefixFixes)) {
+      if (cleaned.startsWith(wrong)) {
+        cleaned = correct + cleaned.substring(wrong.length)
+        break
+      }
+    }
+    
+    // Remove leading comma or special chars
+    cleaned = cleaned.replace(/^[,、。；]/g, '')
+    
+    return cleaned
+  }
+  
+  static parseMRZByPosition(line1: string, line2: string): ExtractedData {
     const data: ExtractedData = this.emptyData()
     
-    console.log("📝 Parsing MRZ...")
-    console.log("   Line 1:", line1)
-    console.log("   Line 2:", line2)
+    console.log("\n🔧 PARSING BY FIXED POSITIONS:")
+    console.log("Line 1:", line1)
+    console.log("Line 2:", line2)
     
-    // ========== PARSE LINE 1: Name ==========
+    // ========== PARSE LINE 1: Full Name ==========
     if (line1.includes('CHN')) {
-      const chnPos = line1.indexOf('CHN')
-      const afterCHN = line1.substring(chnPos + 3)
+      data.nationality = 'CHN'
       
-      // Parse nama dari MRZ Line 1
-      const nameParts = afterCHN.split(/<<+/)
+      const chnIndex = line1.indexOf('CHN')
+      const nameSection = line1.substring(chnIndex + 3)
+      
+      // Remove filler characters (K often misread as <)
+      const cleanedName = nameSection.replace(/K/g, '<')
+      
+      // Split by << or multiple <
+      const nameParts = cleanedName.split(/<<+/)
+      
       if (nameParts.length >= 2) {
+        // Clean surname: remove < and fix OCR errors (0 → O)
         const surname = nameParts[0]
-          .replace(/</g, '')
-          .replace(/[0-9]/g, '') // Hapus angka
+          .replace(/[<]/g, '')
+          .replace(/0/g, 'O')  // Fix 0 to O
+          .replace(/\d+/g, '')  // Remove any remaining numbers
           .trim()
         
+        // Clean given name: remove < and fix OCR errors
         const givenName = nameParts[1]
-          .replace(/</g, ' ')
-          .replace(/[0-9]/g, '') // Hapus angka
+          .replace(/[<]/g, ' ')
+          .replace(/0/g, 'O')  // Fix 0 to O
+          .replace(/\d+/g, '')  // Remove any remaining numbers
+          .replace(/\s+/g, ' ')  // Normalize spaces
           .trim()
         
         if (surname && givenName) {
           data.fullName = `${surname}, ${givenName}`
-          console.log("✅ Name:", data.fullName)
+          console.log("✅ Name from MRZ:", data.fullName)
         }
       }
-      
-      data.nationality = 'CHN'
     }
     
-    // ========== PARSE LINE 2: Passport & Dates ==========
-    if (line2) {
-      // Fix passport number extraction
-      // Format: EF2889363CHN9410121M2902212...
-      // Passport biasanya 9 karakter (1-2 huruf + 7-8 angka)
-      const passportMatch = line2.match(/^([A-Z]{1,2})(\d{7,8})/)
-      if (passportMatch) {
-        // Gabungkan huruf dan angka
-        let passportNo = passportMatch[1] + passportMatch[2]
-        
-        // Khusus untuk kasus EF28893636 -> EF2889363 (hapus digit terakhir jika > 9 chars)
-        if (passportNo.length > 9 && passportNo.match(/^[A-Z]{1,2}\d+$/)) {
-          // Jika ada duplikasi digit, coba perbaiki
-          const letters = passportMatch[1]
-          let numbers = passportMatch[2]
-          
-          // Untuk EF28893636 -> EF2889363
-          if (numbers.length === 8 && numbers[6] === '6' && numbers[7] === '6') {
-            numbers = numbers.substring(0, 7)
-          } else if (numbers.length > 7) {
-            numbers = numbers.substring(0, 7)
-          }
-          
-          passportNo = letters + numbers
-        }
-        
-        data.passportNo = passportNo
-        console.log("✅ Passport:", data.passportNo)
-      }
+    // ========== PARSE LINE 2: Passport, DOB, Gender, DOE ==========
+    if (!line2) {
+      console.error("❌ Line 2 is empty, cannot parse dates!")
+      return data
+    }
+    
+    const chnIndex = line2.indexOf('CHN')
+    if (chnIndex === -1) {
+      console.error("❌ 'CHN' not found in Line 2!")
+      return data
+    }
+    
+    // 1. Passport Number (before CHN)
+    let passport = line2.substring(0, chnIndex)
+    passport = passport.replace(/[^A-Z0-9]/g, '')
+    
+    // Chinese passport format: 2 letters + 7 or 8 digits
+    // Total length: 9 or 10 characters
+    // Don't truncate if it's valid length
+    if (passport.length === 10 && /^[A-Z]{2}\d{8}$/.test(passport)) {
+      // Valid 10-char passport (E + second letter + 8 digits)
+      data.passportNo = passport
+    } else if (passport.length === 9 && /^[A-Z]{2}\d{7}$/.test(passport)) {
+      // Valid 9-char passport (2 letters + 7 digits)
+      data.passportNo = passport
+    } else if (passport.length > 10) {
+      // Too long, truncate to 10
+      passport = passport.substring(0, 10)
+      data.passportNo = passport
+    } else {
+      // Use as-is
+      data.passportNo = passport
+    }
+    
+    console.log("✅ Passport:", data.passportNo, `(${data.passportNo.length} chars)`)
+    
+    // 2. After CHN
+    const afterCHN = line2.substring(chnIndex + 3)
+    console.log("After CHN:", afterCHN)
+    
+    if (afterCHN.length < 6) {
+      console.error("❌ After CHN too short:", afterCHN.length, "chars")
+      return data
+    }
+    
+    // 3. Date of Birth (6 digits after CHN)
+    const dobRaw = afterCHN.substring(0, 6)
+    if (/^\d{6}$/.test(dobRaw)) {
+      data.dateOfBirth = this.parseMRZDate(dobRaw, false)
+      console.log("✅ DOB:", dobRaw, "->", data.dateOfBirth)
+    } else {
+      console.error("❌ Invalid DOB format:", dobRaw)
+    }
+    
+    // 4. Gender (after DOB + check digit)
+    // Position 6 = check digit, position 7 = gender
+    if (afterCHN.length >= 8) {
+      const genderChar = afterCHN[7]
       
-      // Parse dates dari posisi tetap di MRZ Line 2
-      // Format: ...CHN9410121M2902212...
-      //               YYMMDD G YYMMDD
-      const chnPos = line2.indexOf('CHN')
-      if (chnPos > 0) {
-        const afterCHN = line2.substring(chnPos + 3)
+      if (genderChar === 'M' || genderChar === 'F') {
+        data.gender = genderChar === 'M' ? 'Male' : 'Female'
+        console.log("✅ Gender:", genderChar, "->", data.gender)
         
-        // Birth date (6 digits setelah CHN)
-        const birthMatch = afterCHN.match(/^(\d{6})/)
-        if (birthMatch) {
-          const birthDate = birthMatch[1] // 941012
-          data.dateOfBirth = this.formatMRZDate(birthDate, false)
-          console.log("✅ Birth Date:", data.dateOfBirth, "from", birthDate)
-        }
-        
-        // Gender (1 char setelah birth date + check digit)
-        const genderMatch = afterCHN.match(/^\d{6}\d?([MF])/)
-        if (genderMatch) {
-          data.gender = genderMatch[1] === 'M' ? 'Male' : 'Female'
-          console.log("✅ Gender:", data.gender)
-          
-          // Expiry date (6 digits setelah gender)
-          const afterGender = afterCHN.substring(afterCHN.indexOf(genderMatch[1]) + 1)
-          const expiryMatch = afterGender.match(/^(\d{6})/)
-          if (expiryMatch) {
-            const expiryDate = expiryMatch[1] // 290221
-            data.dateOfExpiry = this.formatMRZDate(expiryDate, true)
-            console.log("✅ Expiry Date:", data.dateOfExpiry, "from", expiryDate)
+        // 5. Date of Expiry (6 digits after gender)
+        const afterGender = afterCHN.substring(8)
+        if (afterGender.length >= 6) {
+          const doeRaw = afterGender.substring(0, 6)
+          if (/^\d{6}$/.test(doeRaw)) {
+            data.dateOfExpiry = this.parseMRZDate(doeRaw, true)
+            console.log("✅ DOE:", doeRaw, "->", data.dateOfExpiry)
+          } else {
+            console.error("❌ Invalid DOE format:", doeRaw)
           }
         }
+      } else {
+        console.error("❌ Invalid gender character:", genderChar, "at position 7")
       }
     }
     
     return data
   }
   
-  // ==================== FORMAT MRZ DATE (IMPROVED) ====================
-  static formatMRZDate(dateStr: string, isExpiry: boolean = false): string {
-    if (!/^\d{6}$/.test(dateStr)) return ""
-    
-    const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
-                    "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+  static parseMRZDate(dateStr: string, isExpiry: boolean): string {
+    if (!/^\d{6}$/.test(dateStr)) {
+      console.warn("Invalid date format:", dateStr)
+      return ""
+    }
     
     const yy = parseInt(dateStr.substring(0, 2))
     const mm = parseInt(dateStr.substring(2, 4))
     const dd = parseInt(dateStr.substring(4, 6))
     
-    if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return ""
+    if (mm < 1 || mm > 12 || dd < 1 || dd > 31) {
+      console.warn("Invalid date values:", { yy, mm, dd })
+      return ""
+    }
     
     let year: number
-    
     if (isExpiry) {
-      // Expiry date: always in the future (20xx)
       year = 2000 + yy
     } else {
-      // Birth date: 00-30 = 2000s, 31-99 = 1900s
       year = yy <= 30 ? 2000 + yy : 1900 + yy
     }
     
+    const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                    "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
     const month = months[mm - 1]
     const day = dd.toString().padStart(2, '0')
     
@@ -460,110 +558,54 @@ class EnhancedMRZParser {
     const lines = text.split('\n').map(l => l.trim())
     
     for (const line of lines) {
-      // Parse passport number (improved)
+      // Passport
       if (!data.passportNo) {
-        // Look for pattern like "E125893636" or "EF 2889363"
-        const passportPatterns = [
-          /PASSFOKI\s*P\s*CHN\s*([A-Z]{1,2}\s*\d+)/i,
-          /PASSPORT\s*P\s*CHN\s*([A-Z]{1,2}\s*\d+)/i,
-          /P\s*CHN\s*([A-Z]{1,2}\s*\d+)/,
-          /([A-Z]{1,2})\s*(\d{7,9})\s*CHN/,
-          /([A-Z]{1,2})\s*(\d{7,9})(?=\s|$)/
-        ]
-        
-        for (const pattern of passportPatterns) {
-          const match = line.match(pattern)
-          if (match) {
-            let passport = match[1] + (match[2] || '')
-            passport = passport.replace(/\s/g, '')
-            
-            // Validate passport format
-            if (/^[A-Z]{1,2}\d{7,9}$/.test(passport)) {
-              // Truncate if too long
-              if (passport.length > 9) {
-                passport = passport.substring(0, 9)
-              }
-              data.passportNo = passport
-              console.log("✅ Visual Passport:", data.passportNo)
-              break
-            }
-          }
+        const passportMatch = line.match(/([EG][A-Z]?)\s*(\d{7,9})/i)
+        if (passportMatch) {
+          data.passportNo = (passportMatch[1] + passportMatch[2]).replace(/\s/g, '')
         }
       }
       
-      // Parse full name (improved)
+      // Name
       if (!data.fullName) {
-        // Look for pattern like "BAI, SHUQIANG"
-        const namePatterns = [
-          /([A-Z]{2,}),\s*([A-Z]{2,})/,
-          /Nome\s*([A-Z]{2,}),\s*([A-Z]{2,})/i,
-          /Name\s*([A-Z]{2,}),\s*([A-Z]{2,})/i
-        ]
+        const nameMatch = line.match(/([A-Z]{2,}),\s*([A-Z]{2,})/)
+        if (nameMatch && !['TYPE', 'CODE'].includes(nameMatch[1])) {
+          data.fullName = `${nameMatch[1]}, ${nameMatch[2]}`
+        }
+      }
+      
+      // Place of birth
+      if (!data.placeOfBirth && (line.includes('GANSU') || line.includes('甘肃'))) {
+        data.placeOfBirth = 'GANSU'
+      }
+      
+      // Dates from visual
+      const datePattern = /(\d{1,2})\s*([A-Z]{3})\s*(\d{4})/gi
+      let match
+      while ((match = datePattern.exec(line)) !== null) {
+        const day = match[1].padStart(2, '0')
+        const month = match[2].toUpperCase()
+        const year = parseInt(match[3])
+        const formatted = `${day} ${month} ${year}`
         
-        for (const pattern of namePatterns) {
-          const match = line.match(pattern)
-          if (match) {
-            const surname = match[1]
-            const givenName = match[2]
-            
-            // Validate name (exclude common words)
-            const excludes = ['TYPE', 'SEX', 'COUNTRY', 'CODE', 'PASSPORT', 'CHINESE']
-            if (!excludes.includes(surname.toUpperCase())) {
-              data.fullName = `${surname}, ${givenName}`
-              console.log("✅ Visual Name:", data.fullName)
-              break
-            }
-          }
+        if (!data.dateOfBirth && year >= 1950 && year <= 2010) {
+          data.dateOfBirth = formatted
+        } else if (!data.dateOfExpiry && year >= 2025) {
+          data.dateOfExpiry = formatted
+        } else if (!data.dateOfIssue && year >= 2015 && year <= 2024) {
+          data.dateOfIssue = formatted
         }
       }
       
-      // Parse dates (improved)
-      const datePatterns = [
-        /(\d{1,2})\s*(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s*(\d{4})/gi,
-        /(\d{1,2})\s*月?\s*(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s*(\d{4})/gi
-      ]
-      
-      for (const pattern of datePatterns) {
-        const matches = [...line.matchAll(pattern)]
-        for (const match of matches) {
-          const day = match[1].padStart(2, '0')
-          const month = match[2].toUpperCase()
-          const year = parseInt(match[3])
-          const formatted = `${day} ${month} ${year}`
-          
-          // Determine date type based on year and context
-          if (!data.dateOfBirth && year >= 1950 && year <= 2010) {
-            data.dateOfBirth = formatted
-            console.log("✅ Visual Birth:", data.dateOfBirth)
-          } else if (!data.dateOfExpiry && year >= 2025) {
-            data.dateOfExpiry = formatted
-            console.log("✅ Visual Expiry:", data.dateOfExpiry)
-          } else if (!data.dateOfIssue && year >= 2015 && year <= 2024) {
-            data.dateOfIssue = formatted
-            console.log("✅ Visual Issue:", data.dateOfIssue)
-          }
-        }
+      // Nationality
+      if (!data.nationality && /CHINESE|CHN/i.test(line)) {
+        data.nationality = 'CHN'
       }
       
-      // Parse nationality
-      if (!data.nationality && /CHINESE|CHN|中.*国/i.test(line)) {
-        data.nationality = "CHN"
-      }
-      
-      // Parse gender
+      // Gender
       if (!data.gender) {
-        if (/男|\/M(?!\w)|Male/i.test(line)) {
-          data.gender = "Male"
-        } else if (/女|\/F(?!\w)|Female/i.test(line)) {
-          data.gender = "Female"
-        }
-      }
-      
-      // Parse place of birth
-      if (!data.placeOfBirth) {
-        if (line.includes('GANSU') || line.includes('甘肃')) {
-          data.placeOfBirth = "GANSU"
-        }
+        if (/男|\/M\s|Male/i.test(line)) data.gender = 'Male'
+        else if (/女|\/F\s|Female/i.test(line)) data.gender = 'Female'
       }
     }
     
@@ -572,13 +614,13 @@ class EnhancedMRZParser {
   
   static emptyData(): ExtractedData {
     return {
-      passportNo: "", 
-      fullName: "", 
-      dateOfBirth: "", 
+      passportNo: "",
+      fullName: "",
+      dateOfBirth: "",
       placeOfBirth: "",
-      dateOfIssue: "", 
-      dateOfExpiry: "", 
-      nationality: "", 
+      dateOfIssue: "",
+      dateOfExpiry: "",
+      nationality: "",
       gender: ""
     }
   }
