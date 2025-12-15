@@ -784,7 +784,7 @@ export default function PassportOCRClient() {
               <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
                 Passport Tool Pro
               </h1>
-              <p className="text-sm text-gray-400">AI-Powered OCR Extraction • PDF & Image Support</p>
+              <p className="text-sm text-gray-400">Powered OCR Extraction • PDF & Image Support</p>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-xs bg-purple-600/20 text-purple-400 px-2 py-1 rounded flex items-center gap-1">
@@ -1134,7 +1134,7 @@ export default function PassportOCRClient() {
                 Passport OCR Pro
               </p>
               <p className="text-white/50 text-xs mt-1">
-                Powered by AI • 100% Privacy-First • Client-Side Processing
+                Powered by Sabenih • 100% Privacy-First • Client-Side Processing
               </p>
             </div>
       
@@ -1163,4 +1163,5 @@ export default function PassportOCRClient() {
     </div>
   )
 }
+
 
